@@ -1,0 +1,377 @@
+---
+title: "1_load_summarise_data"
+output:
+  html_document:
+    code_folding: hide
+author: mlagisz
+date: "21/12/2021"
+editor_options: 
+  chunk_output_type: console
+  
+  
+---
+
+```{r setup, include = FALSE}
+
+sessionInfo()
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+#devtools::install_github("massimoaria/bibliometrix") # to install the bibliometrix most recent version from GITHUB
+#install.packages('rAltmetric') #devtools::install_github("ropensci/rAltmetric") 
+
+
+pacman::p_load(tidyverse, 
+               here,
+               rgbif,
+               visdat, #for vis_miss
+               roadoi, #https://cran.r-project.org/web/packages/roadoi/vignettes/intro.html
+               corpcor,
+               naniar,
+               rvest,
+               bibliometrix,
+               networkD3,
+               stringr,
+               tibble,
+               tidystringdist,
+               synthesisr,
+               ggplot2,
+               RColorBrewer,
+               rAltmetric,
+               maps,
+               purrr,
+               ggthemr)
+
+ggthemr('pale') #select one ggplot theme to be used
+
+```
+
+# ALA - pilot code and protocol (under development)   
+
+This project aims to address two key questions:   
+1. How is a local-focused service (Living Atlas /ALA) different from a global-oriented service (GBIF)?   
+2. What are the benefits of local biodiversity information service (Living Atlas/ALA)?   
+Where Question 1 sets the scene, and Question 2 is the main one showing the impact of ALA.   
+
+There are three main data sources to be used in this project:   
+1. [GBIF](gbif.org) data via [GBIF API service](https://www.gbif.org/developer/summary). Note that API has multiple sections, and and existing r package [rgbif](https://www.gbif.org/tool/81747/rgbif) has limited functionality. Thus, customized code for using full API services will be needed (some developed below for accessing curated GBIF impact literature collection, hosted on GBIF).   
+2. [ALA](https://www.ala.org.au/) data via [API services](https://www.ala.org.au/govhack/). Note that there is a new R package [galah](https://atlasoflivingaustralia.github.io/ALA4R/) for accessing biodiversity-related records. The old package [ALA4R](https://atlasoflivingaustralia.github.io/ALA4R/) is now depreciated.   
+3. ALA impact literature collection, hosted on Zotero as a shared group library.   
+ 
+The pilot code and protocol are needed to test the access to the data needed for the final report, create the overview of availabble data, establish data cleaning and pre-processing workflow and specify which analyses can be performed. Piloting of data processing and analyses will be tested on a subset of the available dataset, with records restricted to these published in 2020.   
+ 
+## ALA - initial overview
+
+As a starting point use the infographics "ALA (2020) 10 years in stats. Celebrating a decade of delivering trusted biodiversity data to support research and decision-making" (20322-ALA-10-Stats-for-10-Years-Infographic-V6.pd). This contains ALA resources and impact summary from November 2020 (presented as Table below). This needs to be updated and matched to equivalent data collected from GBIF. Consider presenting overlap, where possible  - i.e. show resources and impact that is unique to ALA.
+
+```{r table ALA overview 2020}
+
+t1_numbers_2020 <- c("91,137,295",
+                  "1,880,920",
+                  "27 countries",
+                  "700+",
+                  "78,300",
+                  "919,919",
+                  "371,890",
+                  "2,328",
+                  "1,184,255","99% of data")
+
+t1_labels <- c("species occurrence records", 
+            "dataset downloads",
+            "around the world using ALA infrastructure and source code",
+            "datasets from data partners across research, government and citizen science",
+            "registered users",
+            "museum specimen labels transcribed by 8,529 DigiVol volunteers",
+            "pages of Australian literature digitised for the Biodiversity Heritage Library",
+            "scientific journal publications referencing ALA",
+            "records for Australian Magpie (Gymnorhina tibicen), the most recorded species in the ALA",
+            "in the ALA have Creative Commons licences")
+
+t1 <-  tibble(t1_labels, t1_numbers_2020) %>% DT::datatable(colnames = c("label","data"), rownames = FALSE, width = "100%", options = list(dom = 't', scrollY = '200px', pageLength = 6), caption = "Table 1. Data from ALA 2020 infographics - to be updated") 
+t1
+
+```
+
+**TODO:**    
+- update table with 2021 data for ALA. Try [Dashboard data feed](https://dashboard.ala.org.au/dashboard/data)   
+- add matching data for GBIF (see below for API/R access test)       
+
+----
+
+## Access GBIF data - registry
+
+Using rgbif R package to make a call to the GBIF [registry API](https://www.gbif.org/developer/registry) to gather overview of resources available via GBIF.  
+
+```{r access GBIF registry dataset via rgbif, eval = FALSE}
+
+datasets(limit=5)
+datasets(type="occurrence", limit=10)
+datasets(type="metadata", limit=10)
+```
+
+This returns heaps of data that need further investogation and processing.       
+
+**TODO:**    
+- find and process data needed to match the overview of ALA resources.  
+- Check out code for generating [GBIF reports by country](https://www.gbif.org/country-report-data)  - consider doing some for Australia.   
+
+----
+
+## Access GBIF data - literature
+
+Make a call to the GBIF [literature API](https://www.gbif.org/developer/literature) (code hosted on https://github.com/gbif/literature-ws) to gather literature related to GBIF or GBIF curated data sets (this data is gathered by the GBIF literature tracking service). Data is returned in JSON format, with limit at 10,000 records.   
+
+```{r access GBIF literature dataset via API, results = 'hide', eval = FALSE}
+
+full_url <- "https://www.gbif.org/api/resource/search?contentType=literature&limit=10000" 
+GBIF_lit_data <- fromJSON(full_url)
+#View(GBIF_lit_data_df$results)
+GBIF_lit_data$count #15276
+GBIF_lit_data_df <- GBIF_lit_data$results
+dim(GBIF_lit_data_df) #10000 rows
+
+table(GBIF_lit_data_df$userContext)
+table(GBIF_lit_data_df$literatureType)
+table(GBIF_lit_data_df$language)
+table(GBIF_lit_data_df$relevance) #needs processing
+table(GBIF_lit_data_df$topics) #needs processing
+table(GBIF_lit_data_df$openAccess) #clean, can be used to split into 2 chunks of less than 10,000 records
+
+#to get all records split by openAccess argument to download two smaller data sets:
+#https://www.gbif.org/resource/search?contentType=literature&openAccess=true
+#https://www.gbif.org/resource/search?contentType=literature&openAccess=false
+```
+
+
+**TODO:**      
+- check how much of this literature is captured by ALA literature data set   
+- process in a way that the data can be used to visualize overlaps and differences   
+
+----
+
+## ALA - impact assessment based on literature   
+
+Load  list of "impact" literature related to ALA - use the .csv file exported from Zotero group library (16/12/2021).   
+
+**NOTE:** Cannot use the files exported from Zotero with "convert2df" function from bibliometrix package. Try later to convert the data frame from this .csv file file into the internal *bibliometrix* format.   
+
+```{r upload original zotero references from csv, eval=TRUE}
+dat <- read.csv(here("data", "ALA - Cited.csv"))
+#dim(dat)
+#names(dat)
+```
+
+Summarize, e.g. by document type ("Item.Type"), year ("Publication.Year"), manual tags ("Manual.Tags"), "Language", etc.   
+
+```{r summarise overall, results = 'hide'}
+names(dat)
+
+table(dat$Item.Type, useNA = "always")
+#hist(dat$Publication.Year) #make graph by year, below
+table(dat$Language, useNA = "always") #needs cleaning, below
+table(dat$Place, useNA = "always") #needs cleaning, see below
+table(dat$Manual.Tags, useNA = "always") #split into individual later
+table(is.na(dat$DOI)) #all
+table(is.na(dat$References)) #none
+
+```
+
+```{r clean Language, results = 'hide'}
+
+table(dat$Language, useNA = "always") #needs cleaning, below
+dat$Language <- replace(dat$Language, dat$Language %in% c("en","EN", "en_AU", "en_US", "en-AU", "en-GB", "en-IN", "en-us", "en-US", "eng"), "English")
+dat$Language <- replace(dat$Language, dat$Language %in% c("de"), "German")
+dat$Language <- replace(dat$Language, dat$Language %in% c("fr"), "French")
+dat$Language <- replace(dat$Language, dat$Language %in% c("es"), "Spanish")
+dat$Language <- replace(dat$Language, dat$Language %in% c("por"), "Portugese")
+dat$Language <- replace(dat$Language, dat$Language %in% c("IT"), "Italian")
+table(dat$Language, useNA = "always") #much better
+table(dat$Language)["English"]
+table(dat$Language)[""]
+sum(dat$Language=="")
+
+```
+
+Language: `r table(dat$Language)["English"]` out of `r sum(table(dat$Language))` are in English, but for `r  sum(dat$Language=="")` records the language info is missing.  
+
+```{r clean Place, eval=FALSE}
+table(dat$Place, useNA = "always") #needs cleaning, below
+all_countries <- str_c(unique(iso3166$sovereignty), collapse = "|") #use iso3166 data set
+df <- dat
+#all_countries <- str_c(unique(world.cities$country.etc), collapse = "|")
+df$country <- sapply(str_extract_all(df$Place, all_countries), toString)
+table(df$country, useNA = "always") #needs much more cleaning - try again after checking doi overlap with GBIF data set, which is much cleaner
+```
+
+**TODO:**    
+- country information needs extensive cleaning - try again after checking doi overlap with GBIF data set, which is much cleaner and contains both author and actual research location data.  
+- then fill in gaps in the ALA data.   
+
+
+### Plot year and literature type information      
+
+```{r plot year , fig.width = 10, fig.height = 10, fig.cap = "Figure 1.", results = 'hide'}
+
+dat %>% 
+  count(Publication.Year, Item.Type) -> count_year
+
+nb.cols <- 14
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+
+ggplot(count_year, aes(as.character(Publication.Year), n, fill=Item.Type)) + 
+  geom_bar(stat="identity") + #, position="dodge"
+  xlab("") + 
+  scale_fill_manual(values = mycolors)
+
+```
+
+Plot literature type.
+  
+```{r plot data type, fig.width = 10, fig.height = 10, fig.cap = "Figure 2.", results = 'hide', include = FALSE}
+### Summarize literature type information  
+#par(mar = c(2, 10, 2, 2))
+#barplot(table(dat$Item.Type), horiz = TRUE, las=1,  main = "Number of papers per species") #how many articles per species
+
+dat %>% 
+  count(Item.Type) -> count_lit_type
+
+ggplot(count_lit_type, aes(x = reorder(Item.Type, n), y = n)) + geom_bar(stat = "identity") +
+  coord_flip() +
+  xlab("") 
+
+```
+
+
+Subset by year - for piloting the code only use data from 2020.     
+
+```{r subset articles from 2020, results = 'hide'}
+dat_2020 <- dat %>% filter(Publication.Year == 2020) 
+dim(dat_2020)
+```
+
+Subset journal articles.   
+
+```{r subset articles, results = 'hide'}
+dat_articles <- dat_2020 %>% filter(Item.Type == "journalArticle") %>% select( c(Key:Manual.Tags))
+dim(dat_articles)
+
+#remove remaining completely empty columns
+dat_articles %>% select_if(function(x){!all(is.na(x))}) -> dat_articles
+
+#table(dat_articles$Manual.Tags, useNA = "always")
+```
+
+Make a data missingnes plot.   
+
+```{r missingness plot, fig.width = 10, fig.height = 6, fig.cap = "Figure. Distribution of missing values in journal articles data subset", results = 'hide'}
+vis_miss(dat_articles) +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 3), 
+        plot.margin = margin(t = 0.5, r = 3, b = 1, l = 1, unit = "cm")) +
+  ggtitle("Missing data for dat_articles") #no missing values
+```
+Data is complete, however this needs further checking (e.g. special characters used for missing values).   
+
+Use DOI to integrate with additional data available from Unpaywall via [roadoi R package](https://docs.ropensci.org/roadoi/reference/roadoi-package.html).   
+
+```{r article doi data, results = 'hide', eval = FALSE}
+#table(is.na(dat_articles$DOI)) #no missing DOI values
+dois <- unique(dat_articles$DOI) #some values need cleaning, as not proper DOI (empty strings)
+
+
+refs_data <- roadoi::oadoi_fetch(dois = dois, email = "losialagisz@gmail.com") #get refs data from doi
+#names(refs_data)
+
+#get failed DOIs
+#str(warnings()) #List of 28
+#failed_DOIs <- warnings()
+
+#refs_data$doi
+#dat_articles$DOI
+
+dat_articles$doi <- dat_articles$DOI
+dat_articles$doi <- gsub("-", NA, dat_articles$doi, fixed=TRUE)
+
+#match and merge data to dat_articles by DOI
+dat_articles_refs <- left_join(dat_articles, refs_data, by="doi")
+dim(dat_articles_refs)
+#str(dat_articles_refs)
+#names(dat_articles_refs)
+
+#table(dat_articles_refs$is_oa, useNA = "always")
+readr::write_csv(dat_articles_refs, file = here("data","dat_articles_refs.csv"))
+
+```
+
+Gather altmetrics data using [rAltmetric R package](https://cran.r-project.org/web/packages/rAltmetric/index.html).    
+
+```{r get altmetric data for orcid doi, eval = FALSE}
+
+dat_articles_refs <- readr::read_csv(file = here("data","dat_articles_refs.csv"))
+
+dois2 <- as.list(dat_articles_refs$DOI) #make a list of doi
+dois2 <- dois2[dois2 != "-"] #remove empty values
+length(dois2)
+
+#get data from altmetrics server
+altmetrics_lists2 <- dois2 %>% purrr::map( ~ tryCatch( {altmetrics(doi = .x)},
+                                             error = function(e) {
+                                             cat(paste0("•NOT_FOUND• ", .x, "\n"))
+                                             }))
+#convert list of altmetrics results to cleaner dataframe
+altmetrics_lists2[sapply(altmetrics_lists2, is.null)] <- NULL
+altmetrics_df2 <- altmetrics_lists2 %>% map_df(~rAltmetric::altmetric_data(.x))
+dim(altmetrics_df2) #49 rows
+#names(altmetrics_df)[1:110] #too many author names columns after 110!
+readr::write_csv(altmetrics_df2, file = here("data","papers_2020_altmetrics.csv"))
+```
+
+Summarize altmetrics data.   
+
+```{r summarise altmetric data}
+
+dat_articles_refs <- readr::read_csv(file = here("data","dat_articles_refs.csv"))
+altmetrics_df2 <- readr::read_csv(file = here("data","papers_2020_altmetrics.csv"))
+
+#plot a histogram of the Altmetric scores (code from https://www.r-bloggers.com/2015/09/altmetrics-on-citeulike-entries-in-r/):
+hist(as.numeric(altmetrics_df2$score), main="", xlab="Altmetric score", breaks=50)
+
+#max(as.numeric(altmetrics_df2$score)) #2654.856
+
+#table(altmetrics_df2$cited_by_policies_count) # 7 documents cited once each
+
+# #plot of the percentile of papers in the journal it was published in and for the full Altmetric.com corpus:
+# plot(
+#   as.vector(altmetrics_df2$context.all.pct),
+#   as.vector(altmetrics_df2$context.journal.pct),
+#   xlab="pct all", ylab="pct journal"
+# )
+# abline(0,1) 
+
+#altmetrics_df2$published_on - convert from character to date format
+#altmetrics_df2$authors1
+
+t2 <-  altmetrics_df2 %>% filter(as.numeric(score) > 500) %>% select(title, journal, doi, score, starts_with("cited")) %>% DT::datatable(rownames = FALSE, width = "100%", options = list(dom = 't', scrollY = '800px', pageLength = 20), caption = "Table 2. Altmetrics for ALA impact articles published in 2020 - papers with score > 500") 
+t2
+
+```
+
+Interpreting Altmetrics key output statistics:   
+
+- score - "Altmetric score" = the main Altmetric attention score    
+- cited_by_policies_count - "Number of policy sources that have mentioned the publication"  
+- cited_by_msm_count - "Number of the news sources that have mentioned the publication"  
+- cited_by_feeds_count - "Number of blogs that have mentioned the publication"  
+- cited_by_tweeters_count - "Number of the twitter accounts that have tweeted this publication"  
+- cited_by_fbwalls_count - "Number of the pages that have shared on Facebook"  
+- cited_by_rdts_count - "Number of Reddit threads posted about this publication"  
+- cited_by_videos_count - "Number of the Youtube/Vimeo channels"  
+- cited_by_gplus_count - "Number of the accounts that have shared on Google+"   
+
+
+**TODO:**    
+- more cleaning up data, esp manual tags and location   
+- get full bibliometric records for articles, including references and affiliations    
+- get journal IF and ranking values  
+- get lists of citing and cited articles - e.g. from LENS to use for citation networks (articles only)    
+- convert literature data into the internal *bibliometrix* format  
+- run network and topic analyses  
+ 
