@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/438872935.svg)](https://zenodo.org/badge/latestdoi/438872935).  
+
 Repository for the project analogizing publications citing or using Atlas of Living Australia.
 
 **Title:** Impacts and opportunities of geographically focused data integration –  a case study of the Atlas of Living Australia.  
