@@ -1,0 +1,9 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Malgorzata
+    given-names: Lagisz
+    orcid: https://orcid.org/0000-0002-3993-6127
+title: Impacts and opportunities of geographically focused data integration –  a case study of the Atlas of Living Australia. Data and code.
+version: v.1.0.0
+date-released: 2023-06-11
